@@ -34,6 +34,7 @@ from inkex.transforms import (
 
 from inkex import (
     Page,
+    Group,
     PathElement,
     Rectangle,
     Transform
@@ -335,6 +336,12 @@ class Posterbation(inkex.EffectExtension):
         # The whole image selection
         sel_bbox = self.svg.selection.bounding_box()
 
+        # Create groups for each selection for easy manipulation
+        # in inkscape gui
+        groups = {}
+        for elem in self.svg.selection.filter():
+            groups[elem.get_id()] = Group()
+
         # Create pages
         for j in range(0, int(sheets_n[1])):
             y = y_pos + j * sheet_size[1]
@@ -364,8 +371,13 @@ class Posterbation(inkex.EffectExtension):
                     # XXX ids (please, tell me why).
                     rect.get_id()
 
-                    # Save elements, operation and page index
-                    slicing_cmds.append((dup, rect, "inter", (i, j)))
+                    group = groups[elem.get_id()]
+                    if group is None:
+                        inkex.errormsg(_("Group can't be found! Assert!"))
+                        return
+
+                    # Save elements, operation, page index and group
+                    slicing_cmds.append((dup, rect, "inter", (i, j), group))
 
         # Save current state to a temp file before proceeding with
         # path operations in order run_pathops() gets all the changes
@@ -389,14 +401,14 @@ class Posterbation(inkex.EffectExtension):
         # Go over each sliced element and add to selection
         selections = []
         for cmd in slicing_cmds:
-            page_idx = cmd[3]
-            elem = self.svg.getElementById(cmd[0].get_id())
+            dup_elem, _, _, page_idx, group = cmd
+            elem = self.svg.getElementById(dup_elem.get_id())
             if elem == None:
                 # Some of the elements can be missing, which is ok
                 continue
 
             self.svg.selection.add(elem)
-            selections.append((elem, page_idx))
+            selections.append((elem, page_idx, group))
 
         # Get bounding box of all sliced elements
         sel_bbox = self.svg.selection.bounding_box()
@@ -405,9 +417,14 @@ class Posterbation(inkex.EffectExtension):
         dx = -sel_bbox.x.minimum * scale + x_pos
         dy = -sel_bbox.y.minimum * scale + y_pos
 
+        # Create group for the current layer
+        layer = self.svg.get_current_layer()
+        for group in groups.values():
+            layer.append(group)
+
         # Scale and translate each sliced element
         for selection in selections:
-            elem, page_idx = selection
+            elem, page_idx, group = selection
             bbox = elem.bounding_box()
             xx, yy = bbox.x.minimum, bbox.y.minimum
             # Don't forget already pre-set transform
@@ -416,6 +433,8 @@ class Posterbation(inkex.EffectExtension):
                      (dx + margin + margin * page_idx[0] * 2,
                       dy + margin + margin * page_idx[1] * 2,
                       scale, trans))
+            # Add element to a group
+            group.append(elem)
 
 if __name__ == "__main__":
     Posterbation().run()
