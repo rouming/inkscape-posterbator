@@ -37,7 +37,9 @@ from inkex import (
     Group,
     PathElement,
     Rectangle,
-    Transform
+    Transform,
+    TextElement,
+    Style
 )
 
 def rm_file(tempfile):
@@ -109,7 +111,12 @@ class Posterbation(inkex.EffectExtension):
             choices=["wide", "high"],
             help="Defines output sheet orientation",
         )
-
+        pars.add_argument(
+            "--output-page-numbers",
+            default="wide",
+            dest="output_page_numbers",
+            help="Defines output page numbers",
+        )
 
     # ----- workaround to avoid crash on quit
 
@@ -376,8 +383,8 @@ class Posterbation(inkex.EffectExtension):
                         inkex.errormsg(_("Group can't be found! Assert!"))
                         return
 
-                    # Save elements, operation, page index and group
-                    slicing_cmds.append((dup, rect, "inter", (i, j), group))
+                    # Save elements, operation, page index, page and group
+                    slicing_cmds.append((dup, rect, "inter", (i, j), page, group))
 
         # Save current state to a temp file before proceeding with
         # path operations in order run_pathops() gets all the changes
@@ -401,14 +408,14 @@ class Posterbation(inkex.EffectExtension):
         # Go over each sliced element and add to selection
         selections = []
         for cmd in slicing_cmds:
-            dup_elem, _, _, page_idx, group = cmd
+            dup_elem, _, _, page_idx, page, group = cmd
             elem = self.svg.getElementById(dup_elem.get_id())
             if elem == None:
                 # Some of the elements can be missing, which is ok
                 continue
 
             self.svg.selection.add(elem)
-            selections.append((elem, page_idx, group))
+            selections.append((elem, page_idx, page, group))
 
         # Get bounding box of all sliced elements
         sel_bbox = self.svg.selection.bounding_box()
@@ -422,9 +429,14 @@ class Posterbation(inkex.EffectExtension):
         for group in groups.values():
             layer.append(group)
 
+        # Create group for pages numbers
+        if self.options.output_page_numbers == "true":
+            numbers_group = Group()
+            layer.append(numbers_group)
+
         # Scale and translate each sliced element
         for selection in selections:
-            elem, page_idx, group = selection
+            elem, page_idx, page, group = selection
             bbox = elem.bounding_box()
             xx, yy = bbox.x.minimum, bbox.y.minimum
             # Don't forget already pre-set transform
@@ -435,6 +447,22 @@ class Posterbation(inkex.EffectExtension):
                       scale, trans))
             # Add element to a group
             group.append(elem)
+
+            if self.options.output_page_numbers == "true":
+                # Create page number text
+                text_style = Style({
+                    "stroke": "white",
+                    "font-size": "20px",
+                    "fill": "black",
+                    "font-family": "arial",
+                    "text-anchor": "start",
+                })
+                text_attribs = {"x": str(page.x + page.width - 30),
+                                "y": str(page.y + page.height - 10)}
+                text = numbers_group.add(TextElement(**text_attribs))
+                text.style = text_style
+                text.text = "%s%d" % (chr(65 + page_idx[0]), page_idx[1] + 1)
+
 
 if __name__ == "__main__":
     Posterbation().run()

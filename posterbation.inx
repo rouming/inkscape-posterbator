@@ -16,13 +16,14 @@
 
       <param name="margin" type="float" min="0.0" max="50.0" gui-text="Margin in mm">10</param>
 
-      <label appearance="header">Output size</label>
+      <label appearance="header">Output</label>
 
       <param name="output-sheets-number" type="float" min="0.1" max="10.0" gui-text="Number of sheets:">4</param>
       <param name="output-sheet-orientation" type="optiongroup" appearance="combo" gui-text="Orientation:">
         <option value="wide">Wide</option>
 		<option value="high">High</option>
       </param>
+      <param name="output-page-numbers" type="boolean" gui-text="Page numbers">true</param>
     </page>
   </param>
   <effect>
