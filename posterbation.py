@@ -117,6 +117,12 @@ class Posterbation(inkex.EffectExtension):
             dest="output_page_numbers",
             help="Defines output page numbers",
         )
+        pars.add_argument(
+            "--output-page-frames",
+            default="wide",
+            dest="output_page_frames",
+            help="Defines output helper page frames",
+        )
 
     # ----- workaround to avoid crash on quit
 
@@ -350,6 +356,7 @@ class Posterbation(inkex.EffectExtension):
             groups[elem.get_id()] = Group()
 
         # Create pages
+        pages = []
         for j in range(0, int(sheets_n[1])):
             y = y_pos + j * sheet_size[1]
             for i in range(0, int(sheets_n[0])):
@@ -358,6 +365,7 @@ class Posterbation(inkex.EffectExtension):
                 page = self.svg.namedview.new_page(x=str(x), y=str(y),
                                                    width=str(sheet_size[0]),
                                                    height=str(sheet_size[1]))
+                pages.append(page)
 
                 # For each page duplicate the whole selection and scale.
                 # Also create a rectangle for intersection (slicing)
@@ -428,6 +436,22 @@ class Posterbation(inkex.EffectExtension):
         layer = self.svg.get_current_layer()
         for group in groups.values():
             layer.append(group)
+
+
+        # Create helper page frames for easy orientation in multi-layers
+        # output poster results
+        if self.options.output_page_frames == "true":
+            group = Group()
+            layer.append(group)
+
+            for page in pages:
+                rect = group.add(Rectangle(x=str(page.x + margin),
+                                           y=str(page.y + margin),
+                                           width=str(page.width - 2 * margin),
+                                           height=str(page.height - 2 * margin)))
+                rect.style = {"stroke": "#000000",
+                              "stroke-width": "4px",
+                              "fill": "none"}
 
         # Create group for pages numbers
         if self.options.output_page_numbers == "true":
