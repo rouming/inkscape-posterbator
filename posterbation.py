@@ -367,12 +367,11 @@ class Posterbation(inkex.EffectExtension):
                                                    height=str(sheet_size[1]))
                 pages.append(page)
 
-                # For each page duplicate the whole selection and scale.
-                # Also create a rectangle for intersection (slicing)
+                # For each page duplicate the whole selection, create a
+                # rectangle for intersection (slicing)
                 for elem in self.svg.selection.filter():
                     dup = elem.duplicate()
                     bbox = dup.bounding_box()
-                    xx, yy = bbox.x.minimum, bbox.y.minimum
 
                     # Slicing rectangle
                     rect = self.svg.add(Rectangle.new(
@@ -462,7 +461,7 @@ class Posterbation(inkex.EffectExtension):
         for selection in selections:
             elem, page_idx, page, group = selection
             bbox = elem.bounding_box()
-            xx, yy = bbox.x.minimum, bbox.y.minimum
+
             # Don't forget already pre-set transform
             trans = elem.get("transform")
             elem.set("transform", "translate(%f,%f) scale(%f) %s" %
