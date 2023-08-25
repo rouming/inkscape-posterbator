@@ -18,7 +18,7 @@
 # Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
 #
 """
-Posterbation
+Posterbator - creates posters!
 """
 
 import os
@@ -71,7 +71,7 @@ def get_defs(node):
     except IndexError:
         return etree.SubElement(node, inkex.addNS('defs', 'svg'))
 
-class Posterbation(inkex.EffectExtension):
+class Posterbator(inkex.EffectExtension):
     """Create a poster."""
 
     def add_arguments(self, pars):
@@ -488,4 +488,4 @@ class Posterbation(inkex.EffectExtension):
 
 
 if __name__ == "__main__":
-    Posterbation().run()
+    Posterbator().run()

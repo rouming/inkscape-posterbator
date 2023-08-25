@@ -1,8 +1,8 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <inkscape-extension xmlns="http://www.inkscape.org/namespace/inkscape/extension">
-  <name>Posterbation</name>
-  <id>posterbation</id>
-  <dependency type="file" location="inx">posterbation.py</dependency>
+  <name>Posterbator</name>
+  <id>posterbator</id>
+  <dependency type="file" location="inx">posterbator.py</dependency>
   <param name="tab" type="notebook">
     <page name="options" gui-text="Options">
       <label appearance="header">Paper settings</label>
@@ -34,6 +34,6 @@
     </effects-menu>
   </effect>
   <script>
-    <command location="inx" interpreter="python">posterbation.py</command>
+    <command location="inx" interpreter="python">posterbator.py</command>
   </script>
 </inkscape-extension>
