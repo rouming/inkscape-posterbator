@@ -327,7 +327,7 @@ class Posterbation(inkex.EffectExtension):
                                          bbox.x.maximum)
             overall_bbox.y.minimum = min(overall_bbox.y.minimum,
                                          bbox.y.minimum)
-            overall_bbox.y.maximum = max(overall_bbox.x.maximum,
+            overall_bbox.y.maximum = max(overall_bbox.y.maximum,
                                          bbox.y.maximum)
 
         res = self.calculate_poster_size()
