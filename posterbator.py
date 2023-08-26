@@ -440,21 +440,14 @@ class Posterbator(inkex.EffectExtension):
         # Create helper page frames for easy orientation in multi-layers
         # output poster results
         if self.options.output_page_frames == "true":
-            group = Group()
-            layer.append(group)
-
-            for page in pages:
-                rect = group.add(Rectangle(x=str(page.x + margin),
-                                           y=str(page.y + margin),
-                                           width=str(page.width - 2 * margin),
-                                           height=str(page.height - 2 * margin)))
-                rect.style = {"stroke": "#000000",
-                              "stroke-width": "4px",
-                              "fill": "none"}
+            frames_group = Group()
+            frames_group.set_id("frames")
+            layer.append(frames_group)
 
         # Create group for pages numbers
         if self.options.output_page_numbers == "true":
             numbers_group = Group()
+            numbers_group.set_id("numbers")
             layer.append(numbers_group)
 
         # Scale and translate each sliced element
@@ -485,6 +478,16 @@ class Posterbator(inkex.EffectExtension):
                 text = numbers_group.add(TextElement(**text_attribs))
                 text.style = text_style
                 text.text = "%s%d" % (chr(65 + page_idx[0]), page_idx[1] + 1)
+
+            if self.options.output_page_frames == "true":
+                rect = frames_group.add(Rectangle(x=str(page.x + margin),
+                                                  y=str(page.y + margin),
+                                                  width=str(page.width - 2 * margin),
+                                                  height=str(page.height - 2 * margin)))
+                rect.style = {"stroke": "#000000",
+                              "stroke-width": "4px",
+                              "fill": "none"}
+
 
 
 if __name__ == "__main__":
