@@ -71,6 +71,9 @@ def get_defs(node):
     except IndexError:
         return etree.SubElement(node, inkex.addNS('defs', 'svg'))
 
+def get_page_number_str(page_idx):
+    return "%s%d" % (chr(65 + page_idx[0]), page_idx[1] + 1)
+
 class Posterbator(inkex.EffectExtension):
     """Create a poster."""
 
@@ -436,7 +439,6 @@ class Posterbator(inkex.EffectExtension):
         for group in groups.values():
             layer.append(group)
 
-
         # Create helper page frames for easy orientation in multi-layers
         # output poster results
         if self.options.output_page_frames == "true":
@@ -455,12 +457,15 @@ class Posterbator(inkex.EffectExtension):
             elem, page_idx, page, group = selection
             bbox = elem.bounding_box()
 
+            id_fmt = get_page_number_str(page_idx) + "-%s"
+
             # Don't forget already pre-set transform
             trans = elem.get("transform")
             elem.set("transform", "translate(%f,%f) scale(%f) %s" %
                      (dx + margin + margin * page_idx[0] * 2,
                       dy + margin + margin * page_idx[1] * 2,
                       scale, trans))
+            elem.set_id(id_fmt % elem.get_id())
             # Add element to a group
             group.append(elem)
 
@@ -477,7 +482,8 @@ class Posterbator(inkex.EffectExtension):
                                 "y": str(page.y + page.height - 10)}
                 text = numbers_group.add(TextElement(**text_attribs))
                 text.style = text_style
-                text.text = "%s%d" % (chr(65 + page_idx[0]), page_idx[1] + 1)
+                text.text = get_page_number_str(page_idx)
+                text.set_id(id_fmt % text.get_id())
 
             if self.options.output_page_frames == "true":
                 rect = frames_group.add(Rectangle(x=str(page.x + margin),
@@ -487,7 +493,7 @@ class Posterbator(inkex.EffectExtension):
                 rect.style = {"stroke": "#000000",
                               "stroke-width": "4px",
                               "fill": "none"}
-
+                rect.set_id(id_fmt % rect.get_id())
 
 
 if __name__ == "__main__":
