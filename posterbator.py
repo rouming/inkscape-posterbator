@@ -224,9 +224,10 @@ class Posterbator(inkex.EffectExtension):
         save_command = ACTIONS[inkversion]['save']
 
         for cmd in cmds:
-            path_op_command = ACTIONS[inkversion][cmd[2]]
-            actions_list.append("select-by-id:" + cmd[0].get_id())
-            actions_list.append("select-by-id:" + cmd[1].get_id())
+            objs, op, *_ = cmd
+            path_op_command = ACTIONS[inkversion][op]
+            for obj in objs:
+                actions_list.append("select-by-id:" + obj.get_id())
             actions_list.append(path_op_command)
             actions_list.append(deselect_command)
         actions_list.append(save_command)
@@ -394,7 +395,7 @@ class Posterbator(inkex.EffectExtension):
                         return
 
                     # Save elements, operation, page index, page and group
-                    slicing_cmds.append((dup, rect, "inter", (i, j), page, group))
+                    slicing_cmds.append(((dup, rect), "inter", (i, j), page, group))
 
         # Save current state to a temp file before proceeding with
         # path operations in order run_pathops() gets all the changes
@@ -418,10 +419,12 @@ class Posterbator(inkex.EffectExtension):
         # Go over each sliced element and add to selection
         selections = []
         for cmd in slicing_cmds:
-            dup_elem, _, _, page_idx, page, group = cmd
-            elem = self.svg.getElementById(dup_elem.get_id())
+            elems, _, page_idx, page, group = cmd
+            elem = self.svg.getElementById(elems[0].get_id())
             if elem == None:
-                # Some of the elements can be missing, which is ok
+                # Some of the elements can be missing, which means
+                # no intersection with the provided slicing rectangle,
+                # which is ok
                 continue
 
             self.svg.selection.add(elem)
