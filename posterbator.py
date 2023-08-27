@@ -74,6 +74,12 @@ def get_defs(node):
 def get_page_number_str(page_idx):
     return "%s%d" % (chr(65 + page_idx[0]), page_idx[1] + 1)
 
+def inkscape_stdout_to_ids(stdout):
+    ids = []
+    for line in stdout.splitlines():
+        ids.append(line.split(" ")[0])
+    return ids
+
 class Posterbator(inkex.EffectExtension):
     """Create a poster."""
 
@@ -126,6 +132,12 @@ class Posterbator(inkex.EffectExtension):
             dest="output_page_frames",
             help="Defines output helper page frames",
         )
+        pars.add_argument(
+            "--output-holes-group",
+            default="wide",
+            dest="output_holes_group",
+            help="Defines separate holes group",
+        )
 
     # ----- workaround to avoid crash on quit
 
@@ -169,10 +181,7 @@ class Posterbator(inkex.EffectExtension):
                         temp.set('d', 'M 0,0 Z')
                         self.document.getroot().append(temp)
 
-    # ----- workaround to fix Effect() performance with large selections
-
-
-    def run_pathops(self, svgfile, cmds, dry_run=False):
+    def __run_pathops(self, svgfile, cmds, dry_run):
         """Run path ops with top_path on a list of other object ids."""
         # build list with command line arguments
         # Version-dependent. This one is for Inkscape 1.1 (else it crashes, see https://gitlab.com/inkscape/inbox/-/issues/4905)
@@ -187,7 +196,12 @@ class Posterbator(inkex.EffectExtension):
                 "div": "path-division",
                 "cut": "path-cut",
                 "comb": "path-combine",
+                "split": "path-split",
+                "break": "path-break-apart",
                 "desel": "select-clear",
+                "selection-ungroup-pop": "selection-ungroup-pop",
+                "selection-group": "selection-group",
+                "select-list": "select-list",
                 "save": f"export-filename:{svgfile};export-overwrite;export-do",
             },
             "1.1":
@@ -224,13 +238,25 @@ class Posterbator(inkex.EffectExtension):
         save_command = ACTIONS[inkversion]['save']
 
         for cmd in cmds:
-            objs, op, *_ = cmd
-            path_op_command = ACTIONS[inkversion][op]
-            for obj in objs:
-                actions_list.append("select-by-id:" + obj.get_id())
-            actions_list.append(path_op_command)
+            multi_cmds = []
+            if type(cmd) is tuple:
+                multi_cmds.append(cmd)
+            elif type(cmd) is list:
+                multi_cmds = cmd
+            else:
+                assert False, "Unknown cmd type, should tuple or list"
+            for cmd in multi_cmds:
+                objs, op, *_ = cmd
+                for obj in objs:
+                    actions_list.append("select-by-id:" + obj.get_id())
+                if type(op) is tuple:
+                    for op_str in op:
+                        actions_list.append(ACTIONS[inkversion][op_str])
+                else:
+                    actions_list.append(ACTIONS[inkversion][op])
             actions_list.append(deselect_command)
         actions_list.append(save_command)
+
         if inkversion == "1.0":
             actions_list.append("FileQuit")
             extra_param = "--with-gui"
@@ -239,6 +265,7 @@ class Posterbator(inkex.EffectExtension):
         else:
             extra_param = ""
         actions = ";".join(actions_list)
+        stdout = ""
         # process command list
         if dry_run:
             inkex.utils.debug(" ".join(["inkscape", extra_param,
@@ -246,9 +273,31 @@ class Posterbator(inkex.EffectExtension):
                                         svgfile, f"(using Inkscape {inkversion})"]))
         else:
             if extra_param != "":
-                inkex.command.inkscape(svgfile, extra_param, actions=actions)
+                stdout = inkex.command.inkscape(svgfile, extra_param, actions=actions)
             else:
-                inkex.command.inkscape(svgfile, actions=actions)
+                stdout = inkex.command.inkscape(svgfile, actions=actions)
+
+        return stdout
+
+    def run_pathops(self, cmds, dry_run=False):
+        # Save current state to a temp file before proceeding with
+        # path operations in order run_pathops() gets all the changes
+        tempfile = self.options.input_file + "-pathops.svg"
+        temp = open(tempfile, "wb")
+        self.save(temp)
+        temp.close()
+
+        # Do path ops
+        stdout = self.__run_pathops(tempfile, cmds, dry_run)
+
+        # Replace current document with content of temp copy file
+        self.document = inkex.load_svg(tempfile)
+        rm_file(tempfile)
+        # Update self.svg
+        self.svg = self.document.getroot()
+        self.update_tagrefs()
+
+        return stdout
 
     def calculate_poster_size(self):
         # Obtain sheet size
@@ -256,8 +305,7 @@ class Posterbator(inkex.EffectExtension):
         if self.options.sheet_size == "A4":
             sheet_size = (210, 297)
         else:
-            inkex.errormsg(_("Incorrect sheet size!"))
-            return None
+            assert False, "Incorrect sheet size!"
 
         # Obtain sheet orientation
         if self.options.sheet_orientation == "landscape":
@@ -267,14 +315,13 @@ class Posterbator(inkex.EffectExtension):
         # Validate and obtain sheets number
         sheets_n = float(self.options.output_sheets_number)
         if sheets_n < 1 or sheets_n > 10:
-            inkex.errormsg(_("Incorrect sheets number!"))
-            return None
+            assert False, "Incorrect sheets number!"
+
 
         # Validate and obtain margin
         margin = float(self.options.margin)
         if margin < 0 or margin > 50:
-            inkex.errormsg(_("Incorrect margin!"))
-            return None
+            assert False, "Incorrect margin!"
 
         # Obtain selection bounding box
         sel_bbox = self.svg.selection.bounding_box()
@@ -308,11 +355,240 @@ class Posterbator(inkex.EffectExtension):
                 (sheets_n_wide, sheets_n_high),
                 margin, scale)
 
+    def separate_holes(self, groups, holes_group_id):
+        #
+        # Here we prepare duplicates for making holes be "correct". What means
+        # correct? If layers (selections) overlap and a bottom layer has hole,
+        # this hole should not be visible, because it is covered by the top
+        # layer. Here we make duplicates of all elements, combining them by
+        # page. Once all holes are found (further operations along the code),
+        # the difference between holes and this duplicated combined elements
+        # should be found. Everything left after the difference operation -
+        # is the "correct" hole!
+        #
+
+        # Map all elements by page numbers
+        elems_map = {}
+        for group in groups.values():
+            for elem in group:
+                page_number = elem.get_id().split("-")[0]
+                elems = elems_map.setdefault(page_number, [])
+                elems.append(elem)
+
+        # Duplicate and combine all elements per page
+        path_cmds = []
+        page_numbers = []
+        for page_number, elems in elems_map.items():
+            page_numbers.append(page_number)
+            path_cmds.append((elems, ("dup","comb","selection-ungroup-pop", "select-list")))
+
+        # Duplicate and combine. The stdout list is duplicated elements
+        # combined per page
+        stdout = self.run_pathops(path_cmds)
+
+        # Map duplicated elements per page for easy access further below
+        dup_elem_ids = inkscape_stdout_to_ids(stdout)
+        dup_elems_map = {}
+        for i in range(0, len(dup_elem_ids)):
+            elem = self.svg.getElementById(dup_elem_ids[i])
+            if elem is None:
+                assert False, "Elem can't be found! Assert!"
+            page_number = page_numbers[i]
+            id_str = "%s-%s" % (page_numbers[i], elem.get_id())
+            elem.set_id(id_str)
+            dup_elems_map[page_number] = id_str
+
+        #
+        # How to find holes?
+        #
+        # 1. "split" every element, which creates many separated elements
+        # (paths) for compound objects, so each newly created element will
+        # have only one shape (but shape with a hole will still contain a
+        # hole).
+        # 2. Store all elements after "split" operation into a list.
+        # 3. "break apart" every element, which splits further and separates
+        # holes from objects.
+        # 4. Find the difference between stored list after "split" and current
+        # list of elements, the difference list is the list with holes
+        #
+
+        #
+        # Go over each element, place it in a separate nested group and then
+        # call a "split", which creates new objects in a new nested group.
+        #
+        path_cmds = []
+        nested_groups = []
+        for old_group in groups.values():
+            group = self.svg.getElementById(old_group.get_id())
+            if group is None:
+                assert False, "Group can't be found! Assert!"
+
+            elems = []
+            for elem in group:
+                elems.append(elem)
+
+            group.remove_all()
+
+            # Put each element to a nested group, because new created
+            # elements after "split" or "break-apart" path operations
+            # are created in the group where the original element sits,
+            # so finding new elements becomes easy.
+            for elem in elems:
+                nested = Group()
+                group.append(nested)
+                nested.set_id("%s-%s" % (elem.get_id().split("-")[0], nested.get_id()))
+                nested.append(elem)
+                nested_groups.append(nested)
+                # Split all paths
+                path_cmds.append(((elem,), "split"))
+
+        # Do path split
+        self.run_pathops(path_cmds)
+
+        #
+        # Go over each element after "split" and store it in the "known"
+        # list, then "break apart", which possibly creates new hole
+        # elements.
+        #
+        path_cmds = []
+        known = {}
+        for old_group in groups.values():
+            group = self.svg.getElementById(old_group.get_id())
+            if group is None:
+                assert False, "Group can't be found! Assert!"
+
+            for nested_group in group:
+                for elem in nested_group:
+                    known[elem.get_id()] = 1
+
+                    # Break apart all paths
+                    path_cmds.append(((elem,), "break"))
+
+        # Do path break apart
+        self.run_pathops(path_cmds)
+
+        #
+        # Find the difference between known list (after "split" operation)
+        # and current list (after "break apart" operation). The difference
+        # is our holes.
+        #
+        hole_map = {}
+        for old_group in nested_groups:
+            group = self.svg.getElementById(old_group.get_id())
+            if group is None:
+                assert False, "Group can't be found! Assert!"
+
+            for elem in group:
+                # If element is not known, that means it is a hole, which
+                # appeared after breaking apart
+                if elem.get_id() in known:
+                    continue
+
+                page_number = group.get_id().split("-")[0]
+                holes = hole_map.setdefault(page_number, [])
+                holes.append(elem)
+
+        # Combine found holes by page.
+        path_cmds = []
+        for page_number, holes in hole_map.items():
+            if len(holes) > 1:
+                path_cmds.append((holes, "comb"))
+
+        # Do combine holes in paths per group
+        self.run_pathops(path_cmds)
+
+        # Redefine holes group object because svg was changed
+        holes_group = self.svg.getElementById(holes_group_id)
+        if holes_group is None:
+            assert False, "Holes group can't be found! Assert!"
+
+        #
+        # Rename holes, add them to a separate "holes" group and
+        # make them white (background)
+        #
+        for page_number, holes in hole_map.items():
+            # In UI it is the top, in the list it is the last.
+            # After combine the resulting path gets the name of the
+            # top element.
+            top_hole = holes[-1]
+            id_str = top_hole.get_id()
+            elem = self.svg.getElementById(id_str)
+            if elem is None:
+                assert False, "Hole path can't be found! Assert!"
+            # Rename hole
+            elem.set_id("%s-%s" % (page_number, id_str))
+            # Set white color (background)
+            elem.style = {"fill": "white"}
+            # Move to holes group
+            holes_group.append(elem)
+
+        #
+        # Holes are moved to a separate "holes" group. Combine all
+        # elements back per page (now without holes).
+        #
+        path_cmds = []
+        for old_group in nested_groups:
+            group = self.svg.getElementById(old_group.get_id())
+            if group is None:
+                assert False, "Group can't be found! Assert!"
+
+            combine_elems = []
+            for elem in group:
+                combine_elems.append(elem)
+
+            # Combine paths per group
+            path_cmds.append((combine_elems, "comb"))
+
+        # Do combine paths
+        self.run_pathops(path_cmds)
+
+        #
+        # Reparent all elements, get rid of nested groups
+        #
+        for old_group in nested_groups:
+            group = self.svg.getElementById(old_group.get_id())
+            if group is None:
+                assert False, "Group can't be found! Assert!"
+
+            for elem in group:
+                # Reparent elem
+                group.getparent().append(elem)
+
+            # Delete nested group
+            group.delete()
+
+
+        #
+        # Find difference between holes and everything else.
+        # This makes holes correct.
+        #
+
+        # Redefine holes group object because svg was changed
+        holes_group = self.svg.getElementById(holes_group.get_id())
+        if holes_group is None:
+            assert False, "Holes group can't be found! Assert!"
+
+        # Hole differences
+        path_cmds = []
+        for hole in holes_group:
+            page_number = hole.get_id().split("-")[0]
+            if page_number not in dup_elems_map:
+                assert False, "Page number is not found in dup map! Assert!"
+
+            id_str = dup_elems_map[page_number]
+            elem = self.svg.getElementById(id_str)
+            if elem is None:
+                assert False, "Dup elem can't be found! Assert!"
+
+            path_cmds.append(((hole, elem), "diff"))
+
+        # Do hole difference
+        self.run_pathops(path_cmds)
+
     def effect(self):
         # Check that elements have been selected
         if not self.svg.selection:
-            inkex.errormsg(_("Please select objects!"))
-            return
+            assert False, "Please select objects!"
 
         pages = self.svg.namedview.get_pages()
         if len(pages) == 0:
@@ -348,7 +624,7 @@ class Posterbator(inkex.EffectExtension):
         x_pos = overall_bbox.x.minimum
         y_pos = overall_bbox.y.maximum
 
-        slicing_cmds = []
+        path_cmds = []
 
         # The whole image selection
         sel_bbox = self.svg.selection.bounding_box()
@@ -391,34 +667,20 @@ class Posterbator(inkex.EffectExtension):
 
                     group = groups[elem.get_id()]
                     if group is None:
-                        inkex.errormsg(_("Group can't be found! Assert!"))
-                        return
+                        assert False, "Group can't be found! Assert!"
 
                     # Save elements, operation, page index, page and group
-                    slicing_cmds.append(((dup, rect), "inter", (i, j), page, group))
+                    path_cmds.append(((dup, rect), "inter", (i, j), page, group))
 
-        # Save current state to a temp file before proceeding with
-        # path operations in order run_pathops() gets all the changes
-        tempfile = self.options.input_file + "-pathops.svg"
-        temp = open(tempfile, "wb")
-        self.save(temp)
-        temp.close()
-
-        self.run_pathops(tempfile, slicing_cmds)
-
-        # replace current document with content of temp copy file
-        self.document = inkex.load_svg(tempfile)
-        rm_file(tempfile)
-        # update self.svg
-        self.svg = self.document.getroot()
-        self.update_tagrefs()
+        # Do slice as intersection path operations
+        self.run_pathops(path_cmds)
 
         # Clear selection
         self.svg.selection.set()
 
         # Go over each sliced element and add to selection
         selections = []
-        for cmd in slicing_cmds:
+        for cmd in path_cmds:
             elems, _, page_idx, page, group = cmd
             elem = self.svg.getElementById(elems[0].get_id())
             if elem == None:
@@ -441,6 +703,17 @@ class Posterbator(inkex.EffectExtension):
         layer = self.svg.get_current_layer()
         for group in groups.values():
             layer.append(group)
+            # XXX Should be called at least once before path
+            # XXX operation, otherwise inkscape assigns different
+            # XXX ids (please, tell me why).
+            group.get_id()
+
+        # Create separated holes group
+        if self.options.output_holes_group == "true":
+            # Create holes group
+            holes_group = Group()
+            holes_group.set_id("holes")
+            layer.append(holes_group)
 
         # Create helper page frames for easy orientation in multi-layers
         # output poster results
@@ -497,6 +770,10 @@ class Posterbator(inkex.EffectExtension):
                               "stroke-width": "4px",
                               "fill": "none"}
                 rect.set_id(id_fmt % rect.get_id())
+
+        # Separate holes
+        if self.options.output_holes_group == "true":
+            self.separate_holes(groups, holes_group.get_id())
 
 
 if __name__ == "__main__":
