@@ -355,7 +355,7 @@ class Posterbator(inkex.EffectExtension):
                 (sheets_n_wide, sheets_n_high),
                 margin, scale)
 
-    def separate_holes(self, groups, holes_group_id):
+    def separate_holes(self, group_ids, holes_group_id):
         #
         # Here we prepare duplicates for making holes be "correct". What means
         # correct? If layers (selections) overlap and a bottom layer has hole,
@@ -369,7 +369,10 @@ class Posterbator(inkex.EffectExtension):
 
         # Map all elements by page numbers
         elems_map = {}
-        for group in groups.values():
+        for group_id in group_ids:
+            group = self.svg.getElementById(group_id)
+            if group is None:
+                assert False, "Group can't be found! Assert!"
             for elem in group:
                 page_number = elem.get_id().split("-")[0]
                 elems = elems_map.setdefault(page_number, [])
@@ -418,8 +421,8 @@ class Posterbator(inkex.EffectExtension):
         #
         path_cmds = []
         nested_groups = []
-        for old_group in groups.values():
-            group = self.svg.getElementById(old_group.get_id())
+        for group_id in group_ids:
+            group = self.svg.getElementById(group_id)
             if group is None:
                 assert False, "Group can't be found! Assert!"
 
@@ -452,8 +455,8 @@ class Posterbator(inkex.EffectExtension):
         #
         path_cmds = []
         known = {}
-        for old_group in groups.values():
-            group = self.svg.getElementById(old_group.get_id())
+        for group_id in group_ids:
+            group = self.svg.getElementById(group_id)
             if group is None:
                 assert False, "Group can't be found! Assert!"
 
@@ -631,9 +634,9 @@ class Posterbator(inkex.EffectExtension):
 
         # Create groups for each selection for easy manipulation
         # in inkscape gui
-        groups = {}
+        groups = []
         for elem in self.svg.selection.filter():
-            groups[elem.get_id()] = Group()
+            groups.append(Group())
 
         # Create pages
         pages = []
@@ -649,7 +652,7 @@ class Posterbator(inkex.EffectExtension):
 
                 # For each page duplicate the whole selection, create a
                 # rectangle for intersection (slicing)
-                for elem in self.svg.selection.filter():
+                for ind, elem in enumerate(self.svg.selection.filter()):
                     dup = elem.duplicate()
                     bbox = dup.bounding_box()
 
@@ -665,12 +668,9 @@ class Posterbator(inkex.EffectExtension):
                     # XXX ids (please, tell me why).
                     rect.get_id()
 
-                    group = groups[elem.get_id()]
-                    if group is None:
-                        assert False, "Group can't be found! Assert!"
-
-                    # Save elements, operation, page index, page and group
-                    path_cmds.append(((dup, rect), "inter", (i, j), page, group))
+                    # Store page index, page and group as a payload
+                    payload = ((i, j), page, groups[ind])
+                    path_cmds.append(((dup, rect), "inter", payload))
 
         # Do slice as intersection path operations
         self.run_pathops(path_cmds)
@@ -681,7 +681,7 @@ class Posterbator(inkex.EffectExtension):
         # Go over each sliced element and add to selection
         selections = []
         for cmd in path_cmds:
-            elems, _, page_idx, page, group = cmd
+            elems, _, (page_idx, page, group) = cmd
             elem = self.svg.getElementById(elems[0].get_id())
             if elem == None:
                 # Some of the elements can be missing, which means
@@ -701,31 +701,33 @@ class Posterbator(inkex.EffectExtension):
 
         # Create group for the current layer
         layer = self.svg.get_current_layer()
-        for group in groups.values():
+        for i, group in enumerate(groups):
             layer.append(group)
             # XXX Should be called at least once before path
             # XXX operation, otherwise inkscape assigns different
             # XXX ids (please, tell me why).
             group.get_id()
+            # From backwards, in UI last element is on top
+            group.label = "%d-group" % (len(groups) - i)
 
         # Create separated holes group
         if self.options.output_holes_group == "true":
             # Create holes group
             holes_group = Group()
-            holes_group.set_id("holes")
+            holes_group.label = "holes"
             layer.append(holes_group)
 
         # Create helper page frames for easy orientation in multi-layers
         # output poster results
         if self.options.output_page_frames == "true":
             frames_group = Group()
-            frames_group.set_id("frames")
+            frames_group.label = "frames"
             layer.append(frames_group)
 
         # Create group for pages numbers
         if self.options.output_page_numbers == "true":
             numbers_group = Group()
-            numbers_group.set_id("numbers")
+            numbers_group.label = "numbers"
             layer.append(numbers_group)
 
         # Scale and translate each sliced element
@@ -773,7 +775,9 @@ class Posterbator(inkex.EffectExtension):
 
         # Separate holes
         if self.options.output_holes_group == "true":
-            self.separate_holes(groups, holes_group.get_id())
+            group_ids = [group.get_id() for group in groups]
+            holes_group_id = holes_group.get_id()
+            self.separate_holes(group_ids, holes_group_id)
 
 
 if __name__ == "__main__":
