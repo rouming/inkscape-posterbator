@@ -750,7 +750,7 @@ class Posterbator(inkex.EffectExtension):
             if self.options.output_page_numbers == "true":
                 # Create page number text
                 text_style = Style({
-                    "stroke": "white",
+                    "stroke": "none",
                     "font-size": "20px",
                     "fill": "black",
                     "font-family": "arial",
