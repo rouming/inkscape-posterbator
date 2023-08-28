@@ -26,6 +26,7 @@
       <param name="output-page-numbers" type="boolean" gui-text="Page numbers">true</param>
       <param name="output-page-frames" type="boolean" gui-text="Helper frames">false</param>
       <param name="output-holes-group" type="boolean" gui-text="Separate holes">true</param>
+      <param name="output-use-palette" type="boolean" gui-text="Use color palette">false</param>
     </page>
   </param>
   <effect>

@@ -42,6 +42,29 @@ from inkex import (
     Style
 )
 
+COLOR_PALETTE = (
+    "#0000ff",
+    "#ff0000",
+    "#00e000",
+    "#d0d000",
+    "#ff8000",
+    "#00e0e0",
+    "#ff00ff",
+    "#b4b4b4",
+    "#0000a0",
+    "#a00000",
+    "#00a000",
+    "#a0a000",
+    "#c08000",
+    "#00a0ff",
+    "#a000a0",
+    "#808080",
+    "#7d87b9",
+    "#bb7784",
+    "#4a6fe3",
+    "#d33f6a",
+)
+
 def rm_file(tempfile):
     try:
         os.remove(tempfile)
@@ -137,6 +160,12 @@ class Posterbator(inkex.EffectExtension):
             default="wide",
             dest="output_holes_group",
             help="Defines separate holes group",
+        )
+        pars.add_argument(
+            "--output-use-palette",
+            default="wide",
+            dest="output_use_palette",
+            help="Defines use palette",
         )
 
     # ----- workaround to avoid crash on quit
@@ -521,7 +550,11 @@ class Posterbator(inkex.EffectExtension):
             # Rename hole
             elem.set_id("%s-%s" % (page_number, id_str))
             # Set white color (background)
-            elem.style = {"fill": "white"}
+            color = "white"
+            if self.options.output_use_palette == "true":
+                # The last
+                color = COLOR_PALETTE[-1]
+            elem.style = {"fill": color}
             # Move to holes group
             holes_group.append(elem)
 
@@ -708,7 +741,9 @@ class Posterbator(inkex.EffectExtension):
             # XXX ids (please, tell me why).
             group.get_id()
             # From backwards, in UI last element is on top
-            group.label = "%d-group" % (len(groups) - i)
+            ind = len(groups) - i
+            group.label = "%d-group" % ind
+            group.style = {"fill": COLOR_PALETTE[ind - 1]}
 
         # Create separated holes group
         if self.options.output_holes_group == "true":
@@ -744,6 +779,8 @@ class Posterbator(inkex.EffectExtension):
                       dy + margin + margin * page_idx[1] * 2,
                       scale, trans))
             elem.set_id(id_fmt % elem.get_id())
+            if self.options.output_use_palette == "true":
+                elem.style = group.style
             # Add element to a group
             group.append(elem)
 
