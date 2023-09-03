@@ -72,11 +72,10 @@ def rm_file(tempfile):
         pass
 
 def get_inkscape_version():
-    ink = inkex.command.INKSCAPE_EXECUTABLE_NAME
     try: # needed prior to 1.1
-        ink_version = inkex.command.call(ink, '--version').decode("utf-8")
+        ink_version = inkex.command.inkscape('--version').decode("utf-8")
     except AttributeError: # needed starting from 1.1
-        ink_version = inkex.command.call(ink, '--version')
+        ink_version = inkex.command.inkscape('--version')
 
     pos = ink_version.find("Inkscape ")
     if pos != -1:
@@ -260,6 +259,9 @@ class Posterbator(inkex.EffectExtension):
                 "save": "FileSave",
             },
         }
+        # Alias
+        ACTIONS["1.3"] = ACTIONS["1.2"]
+
         inkversion = get_inkscape_version()
         actions_list = []
         duplicate_command = ACTIONS[inkversion]['dup']
