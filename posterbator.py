@@ -667,6 +667,10 @@ class Posterbator(inkex.EffectExtension):
         # The whole image selection
         sel_bbox = self.svg.selection.bounding_box()
 
+        # Posterbator layer
+        layer = self.svg.add(inkex.Layer.new("Posterbator"))
+        layer_id = layer.get_id()
+
         # Create groups for each selection for easy manipulation
         # in inkscape gui
         groups = []
@@ -735,7 +739,10 @@ class Posterbator(inkex.EffectExtension):
         dy = -sel_bbox.y.minimum * scale + y_pos
 
         # Create group for the current layer
-        layer = self.svg.get_current_layer()
+        layer = self.svg.getElementById(layer_id)
+        if layer is None:
+            assert False, "Layer can't be found! Assert!"
+
         for i, group in enumerate(groups):
             layer.append(group)
             # XXX Should be called at least once before path
